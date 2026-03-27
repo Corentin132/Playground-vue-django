@@ -1,0 +1,6 @@
+/* Removed default Vite CSS to avoid conflicts with UnoCSS */
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  background-color: #f8f9fa;
+}
