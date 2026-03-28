@@ -1,0 +1,70 @@
+# -----------------------------
+# OS / Editor
+# -----------------------------
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+*.swo
+
+# -----------------------------
+# Logs
+# -----------------------------
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# -----------------------------
+# Python / Django
+# -----------------------------
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.python-version
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+back/.venv/
+back/venv/
+
+# Test / coverage / type-check caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Django local data
+*.sqlite3
+*.sqlite3-journal
+db.sqlite3
+back/db.sqlite3
+
+# Local env files
+.env
+.env.*
+!.env.example
+
+# -----------------------------
+# Node / Frontend
+# -----------------------------
+node_modules/
+dist/
+dist-ssr/
+coverage/
+*.local
+
+# Build caches
+.cache/
+.vite/
+*.tsbuildinfo

@@ -1,30 +1,49 @@
-<script setup>
-import { ref } from 'vue'
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 
+import { isAuthenticated, login, register } from './lib/api'
+
+const route = useRoute()
+const router = useRouter()
+
+const username = ref('')
+const emailOrUsername = ref('')
 const email = ref('')
 const password = ref('')
 const loading = ref(false)
 const error = ref('')
 
-const handleLogin = async () => {
+const isRegisterMode = computed(() => route.path === '/register')
+const title = computed(() => (isRegisterMode.value ? 'Créer un compte' : 'Connexion'))
+
+onMounted(() => {
+  if (isAuthenticated()) {
+    void router.replace('/projects')
+  }
+})
+
+const submit = async () => {
   error.value = ''
   loading.value = true
 
   try {
-    // 👉 Simule une requête API
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-
-    if (email.value !== 'test@test.com') {
-      throw new Error('Identifiants invalides')
+    if (isRegisterMode.value) {
+      await register({
+        username: username.value.trim(),
+        email: email.value.trim(),
+        password: password.value,
+      })
+    } else {
+      await login({
+        identifier: emailOrUsername.value.trim(),
+        password: password.value,
+      })
     }
 
-    console.log('Login success', {
-      email: email.value,
-      password: password.value
-    })
-
-  } catch (err) {
-    error.value = err.message
+    await router.push('/projects')
+  } catch (caughtError: unknown) {
+    error.value = caughtError instanceof Error ? caughtError.message : 'Erreur inconnue'
   } finally {
     loading.value = false
   }
@@ -32,33 +51,43 @@ const handleLogin = async () => {
 </script>
 
 <template>
-  <div class="flex flex-center bg-grey-2" style="min-height: 100vh;">
-    <q-card class="q-pa-lg shadow-2 rounded-borders" style="width: 400px; max-width: 90vw;">
-      
-      <!-- Title -->
-      <div class="text-h5 text-center q-mb-md">
-        Connexion
-      </div>
+  <div class="auth-screen">
+    <q-card class="auth-card q-pa-lg shadow-2 rounded-borders">
+      <div class="text-h5 text-center q-mb-md">{{ title }}</div>
 
-      <!-- Error -->
-      <q-banner
-        v-if="error"
-        class="bg-red-1 text-red-8 q-mb-md"
-        dense
-      >
+      <q-banner v-if="error" class="bg-red-1 text-red-8 q-mb-md" dense>
         {{ error }}
       </q-banner>
 
-      <!-- Form -->
-      <q-form @submit.prevent="handleLogin" class="q-gutter-md">
+      <q-form @submit.prevent="submit" class="q-gutter-md">
+        <q-input
+          v-if="isRegisterMode"
+          v-model="username"
+          type="text"
+          label="Nom d'utilisateur"
+          filled
+          lazy-rules
+          :rules="[(val) => !!val || 'Nom utilisateur requis']"
+        />
 
         <q-input
+          v-if="isRegisterMode"
           v-model="email"
           type="email"
           label="Email"
           filled
           lazy-rules
-          :rules="[val => !!val || 'Email requis']"
+          :rules="[(val) => !!val || 'Email requis']"
+        />
+
+        <q-input
+          v-if="!isRegisterMode"
+          v-model="emailOrUsername"
+          type="text"
+          label="Username"
+          filled
+          lazy-rules
+          :rules="[(val) => !!val || 'Identifiant requis']"
         />
 
         <q-input
@@ -67,25 +96,44 @@ const handleLogin = async () => {
           label="Mot de passe"
           filled
           lazy-rules
-          :rules="[val => !!val || 'Mot de passe requis']"
+          :rules="[(val) => !!val || 'Mot de passe requis']"
         />
 
         <q-btn
-          label="Se connecter"
+          :label="isRegisterMode ? 'Créer mon compte' : 'Se connecter'"
           type="submit"
           color="primary"
           class="full-width"
           :loading="loading"
         />
-
       </q-form>
 
-      <!-- Footer -->
       <div class="text-center q-mt-md text-grey-7">
-        Pas de compte ?
-        <q-btn flat dense color="primary" label="S’inscrire" />
+        <span v-if="isRegisterMode">
+          Déjà un compte ?
+          <RouterLink class="text-primary" to="/login">Se connecter</RouterLink>
+        </span>
+        <span v-else>
+          Pas de compte ?
+          <RouterLink class="text-primary" to="/register">S'inscrire</RouterLink>
+        </span>
       </div>
-
     </q-card>
   </div>
 </template>
+
+<style scoped>
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: radial-gradient(circle at top left, #d9e4ff 0%, #f4f6fb 42%, #f7fafc 100%);
+}
+
+.auth-card {
+  width: 420px;
+  max-width: 92vw;
+  border: 1px solid #e2e8f0;
+}
+</style>
