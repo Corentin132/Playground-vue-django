@@ -125,11 +125,20 @@ onMounted(() => {
             <div>
               <h3 class="project-title">{{ project.name }}</h3>
               <p class="project-description">{{ project.description || 'Sans description' }}</p>
+              <p class="project-role">
+                {{ project.is_owner ? 'Propriétaire' : `Membre · Propriétaire: ${project.owner.username}` }}
+              </p>
             </div>
 
             <div class="project-actions">
               <q-btn color="primary" label="Ouvrir" @click="openProject(project.id)" />
-              <q-btn flat color="negative" label="Supprimer" @click="removeProject(project.id)" />
+              <q-btn
+                v-if="project.is_owner"
+                flat
+                color="negative"
+                label="Supprimer"
+                @click="removeProject(project.id)"
+              />
             </div>
           </article>
         </div>
@@ -179,6 +188,12 @@ onMounted(() => {
 .project-description {
   margin: 0.25rem 0 0;
   color: #465771;
+}
+
+.project-role {
+  margin: 0.4rem 0 0;
+  color: #6a798f;
+  font-size: 0.85rem;
 }
 
 .project-actions {

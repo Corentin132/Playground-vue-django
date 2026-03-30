@@ -3,13 +3,17 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 
 import {
+  addProjectMember,
   createTask,
   deleteTask,
+  listProjectMembers,
   listProjects,
   listTasks,
+  removeProjectMember,
   updateTask,
   type Task as ApiTask,
   type TaskStatus as ApiTaskStatus,
+  type User as ApiUser,
 } from '../lib/api'
 
 import Card from './ui/card.vue'
@@ -23,6 +27,8 @@ interface Task {
   status: TaskStatus
   order: number
   dueDate: string | null
+  assignedTo: ApiUser | null
+  assignedToId: number | null
 }
 
 type TaskStatus = 'todos' | 'in-progress' | 'done'
@@ -43,8 +49,14 @@ const error = ref('')
 const newTitle = ref('')
 const newDescription = ref('')
 const newStatus = ref<TaskStatus>('todos')
+const newMemberEmail = ref('')
 
 const projectId = computed(() => Number(route.params.projectId))
+const members = ref<ApiUser[]>([])
+const ownerId = ref<number | null>(null)
+const isOwner = ref(false)
+const addingMember = ref(false)
+const removingMemberId = ref<number | null>(null)
 
 const columns: Column[] = [
   { key: 'todos', label: 'Todo' },
@@ -109,6 +121,8 @@ const fromApiTasks = (apiTasks: ApiTask[]): Task[] => {
       status: boardStatus,
       order: orderByStatus[boardStatus],
       dueDate: apiTask.due_date,
+      assignedTo: apiTask.assigned_to,
+      assignedToId: apiTask.assigned_to?.id ?? null,
     }
   })
 }
@@ -147,13 +161,17 @@ const loadProjectData = async () => {
   error.value = ''
 
   try {
-    const [allProjects, projectTasks] = await Promise.all([
+    const [allProjects, projectTasks, projectMembers] = await Promise.all([
       listProjects(),
       listTasks(projectId.value),
+      listProjectMembers(projectId.value),
     ])
 
     const found = allProjects.find((project) => project.id === projectId.value)
     projectName.value = found?.name || `Projet #${projectId.value}`
+    isOwner.value = Boolean(found?.is_owner)
+    ownerId.value = found?.owner.id ?? null
+    members.value = projectMembers
     tasks.value = fromApiTasks(projectTasks)
   } catch (caughtError: unknown) {
     error.value = caughtError instanceof Error ? caughtError.message : 'Erreur inconnue'
@@ -198,12 +216,16 @@ const updateTaskStatus = async (taskId: number, previousStatus: TaskStatus, next
   if (!task || previousStatus === nextStatus) return
 
   try {
-    await updateTask(projectId.value, taskId, {
+    const updated = await updateTask(projectId.value, taskId, {
       title: task.title,
       description: task.company,
       status: boardToApiStatus(nextStatus),
       due_date: task.dueDate,
+      assigned_to_id: task.assignedToId,
     })
+
+    task.assignedTo = updated.assigned_to
+    task.assignedToId = updated.assigned_to?.id ?? null
   } catch (caughtError: unknown) {
     task.status = previousStatus
     task.color = statusColor[previousStatus]
@@ -236,10 +258,13 @@ const editTask = async (taskId: number) => {
       description: nextDescription.trim(),
       status: boardToApiStatus(task.status),
       due_date: task.dueDate,
+      assigned_to_id: task.assignedToId,
     })
 
     task.title = updated.title
     task.company = updated.description || 'Sans description'
+    task.assignedTo = updated.assigned_to
+    task.assignedToId = updated.assigned_to?.id ?? null
   } catch (caughtError: unknown) {
     error.value = caughtError instanceof Error ? caughtError.message : 'Erreur inconnue'
   }
@@ -263,6 +288,100 @@ const removeTask = async (taskId: number) => {
   }
 }
 
+const assignTask = async (taskId: number) => {
+  const task = getTaskById(taskId)
+  if (!task) return
+
+  if (members.value.length === 0) {
+    error.value = 'Aucun membre disponible pour l\'assignation.'
+    return
+  }
+
+  const options = [
+    '0: Non assigné',
+    ...members.value.map((member) => `${member.id}: ${member.username} (${member.email})`),
+  ]
+
+  const input = window.prompt(
+    `Choisis l'ID du membre à assigner:\n\n${options.join('\n')}`,
+    task.assignedToId ? String(task.assignedToId) : '0',
+  )
+
+  if (input === null) return
+
+  const parsed = Number(input)
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    error.value = 'ID invalide.'
+    return
+  }
+
+  const assignedToId = parsed === 0 ? null : parsed
+  if (assignedToId !== null && !members.value.some((member) => member.id === assignedToId)) {
+    error.value = 'Ce membre n\'appartient pas au projet.'
+    return
+  }
+
+  error.value = ''
+
+  try {
+    const updated = await updateTask(projectId.value, task.id, {
+      title: task.title,
+      description: task.company,
+      status: boardToApiStatus(task.status),
+      due_date: task.dueDate,
+      assigned_to_id: assignedToId,
+    })
+
+    task.assignedTo = updated.assigned_to
+    task.assignedToId = updated.assigned_to?.id ?? null
+  } catch (caughtError: unknown) {
+    error.value = caughtError instanceof Error ? caughtError.message : 'Erreur inconnue'
+  }
+}
+
+const addMember = async () => {
+  if (!newMemberEmail.value.trim()) {
+    error.value = 'L\'email est requis pour ajouter un membre.'
+    return
+  }
+
+  addingMember.value = true
+  error.value = ''
+
+  try {
+    await addProjectMember(projectId.value, { email: newMemberEmail.value.trim() })
+    newMemberEmail.value = ''
+    await loadProjectData()
+  } catch (caughtError: unknown) {
+    error.value = caughtError instanceof Error ? caughtError.message : 'Erreur inconnue'
+  } finally {
+    addingMember.value = false
+  }
+}
+
+const removeMember = async (userId: number) => {
+  if (!isOwner.value) return
+  if (ownerId.value === userId) {
+    error.value = 'Le propriétaire ne peut pas être retiré.'
+    return
+  }
+
+  const accepted = window.confirm('Retirer ce membre du projet ? Ses tâches seront désassignées.')
+  if (!accepted) return
+
+  removingMemberId.value = userId
+  error.value = ''
+
+  try {
+    await removeProjectMember(projectId.value, userId)
+    await loadProjectData()
+  } catch (caughtError: unknown) {
+    error.value = caughtError instanceof Error ? caughtError.message : 'Erreur inconnue'
+  } finally {
+    removingMemberId.value = null
+  }
+}
+
 const closeTaskContextMenu = () => {
   contextMenuVisible.value = false
   contextMenuTaskId.value = null
@@ -272,7 +391,7 @@ const onTaskContextMenu = (event: MouseEvent, taskId: number) => {
   event.preventDefault()
 
   const menuWidth = 170
-  const menuHeight = 100
+  const menuHeight = 140
   const margin = 8
 
   contextMenuX.value = Math.min(event.clientX, window.innerWidth - menuWidth - margin)
@@ -281,7 +400,7 @@ const onTaskContextMenu = (event: MouseEvent, taskId: number) => {
   contextMenuVisible.value = true
 }
 
-const onContextAction = (action: 'edit' | 'delete') => {
+const onContextAction = (action: 'edit' | 'assign' | 'delete') => {
   const taskId = contextMenuTaskId.value
   closeTaskContextMenu()
 
@@ -289,6 +408,11 @@ const onContextAction = (action: 'edit' | 'delete') => {
 
   if (action === 'edit') {
     void editTask(taskId)
+    return
+  }
+
+  if (action === 'assign') {
+    void assignTask(taskId)
     return
   }
 
@@ -528,6 +652,49 @@ onMounted(() => {
       {{ error }}
     </q-banner>
 
+    <section class="mb-5 grid gap-3 rounded-xl border border-[#dfe1e6] bg-white p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <div class="text-sm font-semibold text-[#172b4d]">Membres du projet</div>
+          <p class="m-0 text-xs text-[#5e6c84]">Assigne les tâches uniquement aux membres du projet.</p>
+        </div>
+
+        <form v-if="isOwner" class="flex flex-wrap gap-2" @submit.prevent="addMember">
+          <input
+            v-model="newMemberEmail"
+            type="email"
+            placeholder="Email exact"
+            class="h-10 rounded-lg border border-[#d5d9df] px-3"
+          />
+          <q-btn :loading="addingMember" color="primary" type="submit" label="Ajouter membre" />
+        </form>
+      </div>
+
+      <div v-if="members.length === 0" class="rounded-lg bg-[#f7f8fb] px-3 py-2 text-sm text-[#5e6c84]">
+        Aucun membre pour le moment.
+      </div>
+
+      <div v-else class="flex flex-wrap gap-2">
+        <div
+          v-for="member in members"
+          :key="member.id"
+          class="flex items-center gap-2 rounded-full border border-[#dce4ef] bg-[#f8fbff] px-3 py-1 text-sm text-[#243b5c]"
+        >
+          <span>{{ member.username }}</span>
+          <span v-if="member.id === ownerId" class="text-xs text-[#0f4bb8]">owner</span>
+          <button
+            v-if="isOwner && member.id !== ownerId"
+            type="button"
+            class="text-xs text-[#c62828]"
+            :disabled="removingMemberId === member.id"
+            @click="removeMember(member.id)"
+          >
+            Retirer
+          </button>
+        </div>
+      </div>
+    </section>
+
     <form class="mb-5 grid gap-3 rounded-xl border border-[#dfe1e6] bg-white p-4" @submit.prevent="createNewTask">
       <div class="text-sm font-semibold text-[#172b4d]">Créer une tâche</div>
       <div class="grid gap-3 md:grid-cols-3">
@@ -595,6 +762,7 @@ onMounted(() => {
                 :company="task.company"
                 :timeAgo="task.timeAgo"
                 :color="task.color"
+                :assigned-to="task.assignedTo?.username ?? null"
               />
             </div>
           </div>
@@ -616,6 +784,13 @@ onMounted(() => {
         @click="onContextAction('edit')"
       >
         Modifier
+      </button>
+      <button
+        type="button"
+        class="block w-full px-3 py-2 text-left text-sm text-[#1f2f46] hover:bg-[#edf2fb]"
+        @click="onContextAction('assign')"
+      >
+        Assigner
       </button>
       <button
         type="button"

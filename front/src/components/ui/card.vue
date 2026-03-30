@@ -6,6 +6,7 @@ const props = defineProps<{
   timeAgo: string
   iconUrl?: string
   color: string
+  assignedTo?: string | null
 }>()
 
 
@@ -21,13 +22,15 @@ const props = defineProps<{
     <div class="p-4 flex flex-col grow gap-3">
       <div class="flex items-center gap-3">
         <div class="w-10 h-10 rounded-lg overflow-hidden flex items-center justify-center bg-[#f5f5f5] shrink-0">
-          <img v-if="iconUrl" :src="iconUrl" alt="Company icon" class="w-full h-full object-cover" />
+          <!-- injection friendly si l'url vient de la user input -> faire une S3 avec rencodation et validation de l'url           <img v-if="iconUrl"   loading="lazy" referrerpolicy="no-referrer" :src="iconUrl" alt="Company icon" class="w-full h-full object-cover" /> -->
+          <img v-if="iconUrl"   loading="lazy" referrerpolicy="no-referrer" :src="iconUrl" alt="Company icon" class="w-full h-full object-cover" />
           <div v-else class="w-6 h-6 bg-[#e0e0e0] rounded"></div>
         </div>
         
         <div class="flex flex-col gap-1">
           <h3 class="m-0 text-[15px] font-semibold text-[#1a1a1a] leading-tight">{{ title }}</h3>
           <p class="m-0 text-[14px] text-[#666]">{{ company }}</p>
+          <p v-if="assignedTo" class="m-0 text-[12px] text-[#455a75]">Assigné à: {{ assignedTo }}</p>
         </div>
       </div>
       

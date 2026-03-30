@@ -6,6 +6,8 @@ from .views import (
     LoginView,
     LogoutView,
     MeView,
+    ProjectMemberDestroyView,
+    ProjectMemberListCreateView,
     ProjectListCreateView,
     ProjectRetrieveUpdateDestroyView,
     RegisterView,
@@ -21,7 +23,29 @@ urlpatterns = [
     path("auth/logout/", LogoutView.as_view(), name="auth-logout"),
     path("auth/me/", MeView.as_view(), name="auth-me"),
     path("projects/", ProjectListCreateView.as_view(), name="project-list-create"),
-    path("projects/<int:pk>/", ProjectRetrieveUpdateDestroyView.as_view(), name="project-detail"),
-    path("projects/<int:project_id>/tasks/", TaskListCreateView.as_view(), name="task-list-create"),
-    path("projects/<int:project_id>/tasks/<int:pk>/", TaskRetrieveUpdateDestroyView.as_view(), name="task-detail"),
+    path(
+        "projects/<int:pk>/",
+        ProjectRetrieveUpdateDestroyView.as_view(),
+        name="project-detail",
+    ),
+    path(
+        "projects/<int:project_id>/members/",
+        ProjectMemberListCreateView.as_view(),
+        name="project-members",
+    ),
+    path(
+        "projects/<int:project_id>/members/<int:user_id>/",
+        ProjectMemberDestroyView.as_view(),
+        name="project-member-detail",
+    ),
+    path(
+        "projects/<int:project_id>/tasks/",
+        TaskListCreateView.as_view(),
+        name="task-list-create",
+    ),
+    path(
+        "projects/<int:project_id>/tasks/<int:pk>/",
+        TaskRetrieveUpdateDestroyView.as_view(),
+        name="task-detail",
+    ),
 ]

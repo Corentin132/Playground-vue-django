@@ -16,7 +16,8 @@ export interface Project {
   name: string
   description: string
   owner: User
-  // ajouter des participant plus tard
+  members: User[]
+  is_owner: boolean
   created_at: string
   updated_at: string
 }
@@ -27,6 +28,7 @@ export interface Task {
   title: string
   description: string
   status: TaskStatus
+  assigned_to: User | null
   due_date: string | null
   created_at: string
   updated_at: string
@@ -278,13 +280,36 @@ export async function deleteProject(projectId: number): Promise<void> {
   })
 }
 
+export async function listProjectMembers(projectId: number): Promise<User[]> {
+  return request<User[]>(`/projects/${projectId}/members/`)
+}
+
+export async function addProjectMember(projectId: number, payload: { email: string }): Promise<User> {
+  return request<User>(`/projects/${projectId}/members/`, {
+    method: "POST",
+    body: JSON.stringify(payload),
+  })
+}
+
+export async function removeProjectMember(projectId: number, userId: number): Promise<void> {
+  await request<void>(`/projects/${projectId}/members/${userId}/`, {
+    method: "DELETE",
+  })
+}
+
 export async function listTasks(projectId: number): Promise<Task[]> {
   return request<Task[]>(`/projects/${projectId}/tasks/`)
 }
 
 export async function createTask(
   projectId: number,
-  payload: { title: string; description: string; status: TaskStatus; due_date: string | null },
+  payload: {
+    title: string
+    description: string
+    status: TaskStatus
+    due_date: string | null
+    assigned_to_id?: number | null
+  },
 ): Promise<Task> {
   return request<Task>(`/projects/${projectId}/tasks/`, {
     method: "POST",
@@ -295,7 +320,13 @@ export async function createTask(
 export async function updateTask(
   projectId: number,
   taskId: number,
-  payload: { title: string; description: string; status: TaskStatus; due_date: string | null },
+  payload: {
+    title: string
+    description: string
+    status: TaskStatus
+    due_date: string | null
+    assigned_to_id?: number | null
+  },
 ): Promise<Task> {
   return request<Task>(`/projects/${projectId}/tasks/${taskId}/`, {
     method: "PATCH",

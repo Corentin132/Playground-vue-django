@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.contrib.auth import authenticate, get_user_model
+from django.db.models import Q
 from django.middleware.csrf import get_token
 from django.shortcuts import get_object_or_404
 from rest_framework import generics, permissions, status
@@ -8,13 +9,30 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.exceptions import TokenError
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import Project, Task
-from .serializers import ProjectSerializer, RegisterSerializer, TaskSerializer, UserSerializer
+from .models import Project, ProjectMember, Task
+from .serializers import (
+    ProjectSerializer,
+    RegisterSerializer,
+    TaskSerializer,
+    UserSerializer,
+)
 
 User = get_user_model()
 
 
-def _set_auth_cookies(response: Response, request, access_token: str, refresh_token: str) -> None:
+def _visible_projects_for_user(user):
+    return Project.objects.filter(Q(owner=user) | Q(memberships__user=user)).distinct()
+
+
+def _project_users_queryset(project):
+    return User.objects.filter(
+        Q(id=project.owner_id) | Q(project_memberships__project=project)
+    ).distinct()
+
+
+def _set_auth_cookies(
+    response: Response, request, access_token: str, refresh_token: str
+) -> None:
     access_max_age = int(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds())
     refresh_max_age = int(settings.SIMPLE_JWT["REFRESH_TOKEN_LIFETIME"].total_seconds())
 
@@ -208,7 +226,7 @@ class ProjectListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Project.objects.filter(owner=self.request.user)
+        return _visible_projects_for_user(self.request.user)
 
     def perform_create(self, serializer):
         serializer.save(owner=self.request.user)
@@ -219,7 +237,88 @@ class ProjectRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        if self.request.method in permissions.SAFE_METHODS:
+            return _visible_projects_for_user(self.request.user)
         return Project.objects.filter(owner=self.request.user)
+
+
+class ProjectMemberListCreateView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_project_for_access(self):
+        return get_object_or_404(
+            _visible_projects_for_user(self.request.user), id=self.kwargs["project_id"]
+        )
+
+    def get_project_for_manage(self):
+        return get_object_or_404(
+            Project, id=self.kwargs["project_id"], owner=self.request.user
+        )
+
+    def get(self, request, project_id):
+        project = self.get_project_for_access()
+        members = _project_users_queryset(project).order_by("username")
+        return Response(UserSerializer(members, many=True).data)
+
+    def post(self, request, project_id):
+        project = self.get_project_for_manage()
+        email = str(request.data.get("email", "")).strip()
+
+        if not email:
+            return Response(
+                {"detail": "L'email est requis."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user = User.objects.filter(email__iexact=email).first()
+        if user is None:
+            return Response(
+                {"detail": "Aucun utilisateur trouvé avec cet email."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if user.id == project.owner_id:
+            return Response(
+                {"detail": "Le propriétaire est déjà membre du projet."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        _, created = ProjectMember.objects.get_or_create(project=project, user=user)
+        if not created:
+            return Response(
+                {"detail": "Cet utilisateur est déjà membre du projet."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(UserSerializer(user).data, status=status.HTTP_201_CREATED)
+
+
+class ProjectMemberDestroyView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def delete(self, request, project_id, user_id):
+        project = get_object_or_404(Project, id=project_id, owner=request.user)
+
+        if user_id == project.owner_id:
+            return Response(
+                {"detail": "Impossible de retirer le propriétaire du projet."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        membership = ProjectMember.objects.filter(
+            project=project, user_id=user_id
+        ).first()
+        if membership is None:
+            return Response(
+                {"detail": "Ce membre n'appartient pas au projet."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        Task.objects.filter(project=project, assigned_to_id=user_id).update(
+            assigned_to=None
+        )
+        membership.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class TaskListCreateView(generics.ListCreateAPIView):
@@ -227,7 +326,14 @@ class TaskListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_project(self):
-        return get_object_or_404(Project, id=self.kwargs["project_id"], owner=self.request.user)
+        return get_object_or_404(
+            _visible_projects_for_user(self.request.user), id=self.kwargs["project_id"]
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["project"] = self.get_project()
+        return context
 
     def get_queryset(self):
         return Task.objects.filter(project=self.get_project())
@@ -241,7 +347,14 @@ class TaskRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_project(self):
-        return get_object_or_404(Project, id=self.kwargs["project_id"], owner=self.request.user)
+        return get_object_or_404(
+            _visible_projects_for_user(self.request.user), id=self.kwargs["project_id"]
+        )
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["project"] = self.get_project()
+        return context
 
     def get_queryset(self):
         return Task.objects.filter(project=self.get_project())

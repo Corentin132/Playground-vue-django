@@ -1,0 +1,58 @@
+services:
+  db:
+    image: mariadb:11.8
+    environment:
+      MARIADB_DATABASE: app_db
+      MARIADB_USER: app_user
+      MARIADB_PASSWORD: app_password
+      MARIADB_ROOT_PASSWORD: root_password
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mariadb-admin ping -h localhost -uroot -p$$MARIADB_ROOT_PASSWORD --silent",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  back:
+    build:
+      context: ./back
+    working_dir: /app
+    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+    environment:
+      DB_ENGINE: mariadb
+      DB_HOST: db
+      DB_PORT: 3306
+      DB_NAME: app_db
+      DB_USER: app_user
+      DB_PASSWORD: app_password
+    volumes:
+      - ./back:/app
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  front:
+    build:
+      context: ./front
+    working_dir: /app
+    command: bun run dev --host 0.0.0.0 --port 5173
+    volumes:
+      - ./front:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:8000/api
+      - CHOKIDAR_USEPOLLING=true # Permet le hot reload dans Docker
+    ports:
+      - "5173:5173"
+    depends_on:
+      - back
+
+volumes:
+  mariadb_data:

@@ -25,7 +25,16 @@ class Task(models.Model):
     project = models.ForeignKey(Project, on_delete=models.CASCADE, related_name="tasks")
     title = models.CharField(max_length=200)
     description = models.TextField(blank=True)
-    status = models.CharField(max_length=20, choices=Status.choices, default=Status.TODO)
+    status = models.CharField(
+        max_length=20, choices=Status.choices, default=Status.TODO
+    )
+    assigned_to = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name="assigned_tasks",
+        null=True,
+        blank=True,
+    )
     due_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -35,3 +44,24 @@ class Task(models.Model):
 
     def __str__(self) -> str:
         return f"{self.title} ({self.project.name})"
+
+
+class ProjectMember(models.Model):
+    project = models.ForeignKey(
+        Project, on_delete=models.CASCADE, related_name="memberships"
+    )
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="project_memberships"
+    )
+    added_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["project", "user"], name="unique_project_member"
+            ),
+        ]
+        ordering = ["added_at"]
+
+    def __str__(self) -> str:
+        return f"{self.user.username} in {self.project.name}"
